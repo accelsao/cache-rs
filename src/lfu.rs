@@ -23,6 +23,7 @@ enum WriteOp<K, V> {
     Remove(K),
 }
 
+#[derive(Clone)]
 pub struct LFUCache<K, V, S> {
     inner: Arc<LFUInner<K, V, S>>,
     read_op_ch: Sender<K>,
@@ -175,7 +176,7 @@ unsafe impl<K, V, S> Sync for LFUCache<K, V, S> {}
 struct LFUInner<K, V, S> {
     capacity: usize,
     cache: Cache<K, V, S>,
-    keys: RwLock<KeySet<K>>,
+    keys: Mutex<KeySet<K>>,
     frequency_sketch: RwLock<CountMinSketch8<K>>,
     reads_apply_lock: Mutex<()>,
     writes_apply_lock: Mutex<()>,
@@ -201,7 +202,7 @@ where
         Self {
             capacity,
             cache: cht::HashMap::with_capacity_and_hasher(capacity, build_hasher),
-            keys: RwLock::new(HashSet::default()),
+            keys: Mutex::new(HashSet::default()),
             frequency_sketch: RwLock::new(frequency_sketch),
             reads_apply_lock: Mutex::new(()),
             writes_apply_lock: Mutex::new(()),
@@ -243,13 +244,14 @@ where
 
     fn apply_writes(&self, _lock: MutexGuard<'_, ()>, count: usize) {
         let freq = self.frequency_sketch.read();
+        let mut keys = self.keys.lock();
 
         let ch = &self.write_op_ch;
         for _ in 0..count {
             match ch.try_recv() {
-                Ok(Insert(key, value)) => self.do_insert(key, Arc::new(value), &freq),
+                Ok(Insert(key, value)) => self.do_insert(key, Arc::new(value), &mut keys, &freq),
                 Ok(Remove(key)) => {
-                    self.cache.remove(&key);
+                    keys.remove(&key);
                 }
                 Err(_) => break,
             };
@@ -261,17 +263,16 @@ where
         freq.estimate(candidate) > freq.estimate(victim)
     }
 
-    fn do_insert(&self, key: K, value: Arc<V>, freq: &CountMinSketch8<K>) {
+    fn do_insert(&self, key: K, value: Arc<V>, keys: &mut KeySet<K>, freq: &CountMinSketch8<K>) {
         if self.cache.len() < self.capacity {
             let key = Arc::new(key);
-            self.keys.write().insert(Arc::clone(&key));
+            keys.insert(Arc::clone(&key));
             self.cache.insert(key, value);
         } else {
-            let victim = self.find_cache_victim(freq);
+            let victim = self.find_cache_victim(keys, freq);
             if self.admit(&key, &victim, freq) {
                 let key = Arc::new(key);
                 {
-                    let mut keys = self.keys.write();
                     keys.remove(&victim);
                     keys.insert(Arc::clone(&key));
                 }
@@ -282,9 +283,8 @@ where
     }
 
     // TODO: Run this periodically in background.
-    fn find_cache_victim(&self, freq: &CountMinSketch8<K>) -> Arc<K> {
+    fn find_cache_victim(&self, keys: &mut KeySet<K>, freq: &CountMinSketch8<K>) -> Arc<K> {
         let mut victim = None;
-        let keys = self.keys.read();
 
         for key in keys.iter() {
             let freq0 = freq.estimate(key);
@@ -294,10 +294,10 @@ where
                 Some(_) => (),
             }
         }
-
         // TODO: Remove clone().
         // Maybe the cache map should have <Arc<K>, Arc<V>> instead of <K, Arc<V>>?
-        victim.expect("No victim found").1.clone()
+        let (_, k) = victim.expect("No victim found");
+        Arc::clone(k)
     }
 }
 
