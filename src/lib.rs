@@ -1,33 +1,19 @@
-macro_rules! vec_no_clone {
-    ( $val:expr; $n:expr ) => {{
-        let result: Vec<_> = std::iter::repeat_with(|| $val).take($n).collect();
-        result
-    }};
-}
+use std::sync::Arc;
 
-mod cache;
-mod store;
+mod lfu;
+mod naive_lfu;
 
-use anyhow::Result;
-use bytes::Bytes;
+// Interior mutability (no need for `&mut self`)
+pub trait ConcurrentCache<K, V> {
+    fn get(&self, key: &K) -> Option<Arc<V>>;
 
-trait Cache {
-    fn get(key: Bytes) -> Result<Bytes>;
-    fn set(key: Bytes, value: Bytes) -> Result<()>;
-}
+    fn get_or_insert(&self, key: K, default: V) -> Arc<V>;
 
-#[macro_use]
-macro_rules! vec_no_clone {
-    ( $val:expr; $n:expr ) => {{
-        let result: Vec<_> = std::iter::repeat_with(|| $val).take($n).collect();
-        result
-    }};
-}
+    fn get_or_insert_with<F>(&self, key: K, default: F) -> Arc<V>
+    where
+        F: FnOnce() -> V;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
+    fn insert(&self, key: K, value: V);
+
+    fn remove(&self, key: &K) -> Option<Arc<V>>;
 }

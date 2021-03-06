@@ -7,5 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.38"
-bytes = "1.0.1"
+count-min-sketch = "0.1.7"
+parking_lot = "0.11.1"
+crossbeam-channel = "0.5.0"
+cht = "0.4.1"
