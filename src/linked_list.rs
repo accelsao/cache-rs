@@ -1,5 +1,11 @@
 use std::ptr::NonNull;
 
+pub enum CacheRegion {
+    Window,
+    MainProbation,
+    MainProtected,
+}
+
 pub struct LinkedList<T> {
     head: Option<NonNull<Node<T>>>,
     tail: Option<NonNull<Node<T>>>,
@@ -128,13 +134,54 @@ impl<T> LinkedList<T> {
         self.pop_front_node().map(Node::into_elem)
     }
 
-    pub fn push_back(&mut self, elem: T) {
+    pub fn push_back(&mut self, elem: T) -> Option<NonNull<Node<T>>> {
         self.push_back_node(Box::new(Node::new(elem)));
+        self.tail
     }
 
-    pub unsafe fn move_to_back(&mut self, node: NonNull<Node<T>>) {
-        self.unlink_node(node);
-        let node = Box::from_raw(node.as_ptr());
-        self.push_back_node(node);
+    pub fn move_to_back(&mut self, node: Option<NonNull<Node<T>>>) {
+        match node {
+            None => {}
+            Some(unlinked_node) => unsafe {
+                self.unlink_node(unlinked_node);
+                let node = Box::from_raw(unlinked_node.as_ptr());
+                self.push_back_node(node);
+            },
+        }
+    }
+}
+
+unsafe impl<#[may_dangle] T> Drop for LinkedList<T> {
+    fn drop(&mut self) {
+        struct DropGuard<'a, T>(&'a mut LinkedList<T>);
+
+        impl<'a, T> Drop for DropGuard<'a, T> {
+            fn drop(&mut self) {
+                // Continue the same loop we do below. This only runs when a destructor has
+                // panicked. If another one panics this will abort.
+                while self.0.pop_front_node().is_some() {}
+            }
+        }
+
+        while let Some(node) = self.pop_front_node() {
+            let guard = DropGuard(self);
+            drop(node);
+            std::mem::forget(guard);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::linked_list::LinkedList;
+
+    #[test]
+    fn basic() {
+        let mut linkedlist = LinkedList::new();
+        let n1 = linkedlist.push_back(3);
+        let n2 = linkedlist.push_back(4);
+        linkedlist.move_to_back(n1);
+        assert_eq!(linkedlist.pop_front(), Some(4));
+        assert_eq!(linkedlist.pop_front(), Some(3));
     }
 }

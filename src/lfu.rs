@@ -18,6 +18,10 @@ const WRITE_LOG_SIZE: usize = 256;
 const READ_LOG_HIGH_WATER_MARK: usize = 48; // 75% of READ_LOG_SIZE
 const WRITE_LOG_HIGH_WATER_MARK: usize = 128; // 50% of WRITE_LOG_SIZE
 
+enum ReadOp<K, V> {
+    ReadExisting(K, Arc),
+}
+
 enum WriteOp<K, V> {
     Insert(K, V),
     Remove(K),

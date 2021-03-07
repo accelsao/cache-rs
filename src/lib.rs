@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+mod cache;
 mod lfu;
-mod linkedList;
+mod linked_list;
 mod naive_lfu;
 
 // Interior mutability (no need for `&mut self`)
